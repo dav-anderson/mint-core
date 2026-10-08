@@ -1,0 +1,33 @@
+[package]
+name = "sandbox-mint-server"
+description = "Thin single-process HTTP server exposing mint-core over the network. There is no consensus engine, no P2P networking, and no fedimint or cashu/cdk dependency anywhere in this crate's dependency graph."
+version = "0.1.0"
+edition = { workspace = true }
+license = { workspace = true }
+
+[lib]
+name = "sandbox_mint_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sandbox-mintd"
+path = "src/main.rs"
+
+[dependencies]
+mint-core = { path = "../crates/mint-core" }
+mint-types = { path = "../crates/mint-types" }
+axum = { workspace = true }
+tokio = { workspace = true }
+secp256k1 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+subtle = "2.6"
+
+[dev-dependencies]
+bdhke = { path = "../crypto/bdhke" }
+# No TLS backend feature on purpose: this client only talks to a local plain-HTTP mint.
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+rand = { workspace = true }

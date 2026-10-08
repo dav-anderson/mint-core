@@ -1,0 +1,13 @@
+[package]
+name = "mint-types"
+description = "Note/nonce/amount/config types for the sandbox mint. Adapted from fedimint's fedimint-mint-common, with the federation-oriented parts (versioned Input/Output enums for rolling multi-guardian upgrades, per-peer key maps, consensus-encoding) removed, and now depending directly on secp256k1 instead of through fedimint-core -- this crate has no fedimint dependency."
+version = "0.1.0"
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+secp256k1 = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,15 @@
+[package]
+name = "mint-core"
+description = "Note issuance/redemption logic for the sandbox mint: verify, issue, redeem, swap. No fedimint dependency, no cashu/cdk dependency -- signs and verifies via the `bdhke` crate, stores state via a thin `sled` wrapper."
+version = "0.1.0"
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+bdhke = { path = "../../crypto/bdhke" }
+mint-types = { path = "../mint-types" }
+secp256k1 = { workspace = true }
+sled = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
