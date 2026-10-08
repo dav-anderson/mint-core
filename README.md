@@ -1,34 +1,47 @@
-# sandbox-mint
+# mint-core
 
-A single-operator Chaumian ecash mint. The mint can issue notes arbitrarily, with
+Shared utilities for Chaumian ecash mints. The PSP, ESP and FSP mints each live in their own repo, depend on this one, and add their own issuance middleware on top.
+
+The mint can issue notes arbitrarily, with
 no requirement that they be backed by a real-world deposit. Two users can
 transact with each other through it without the mint being able to link who
 sent what to whom.
 
-This workspace's only cryptographic dependency is the `secp256k1` crate.
+This workspace's only cryptographic dependencies are the `secp256k1` and `sha2` crates.
 
 ## What's in here
 
 | Crate | What it is |
 |---|---|
 | `crypto/bdhke` | The blind-signature primitive: `hash_to_curve`, `blind_message`, `sign_message`, `unblind_message`, `verify_message`. ~150 lines, zero vestigial multi-party code, tested against NUT-00's published test vectors. |
-| `crates/mint-types` | `Amount` (a plain opaque unit count), `Note`/`Nonce`/`BlindNonce`, `MintInput`/`MintOutput`, the `transaction_sighash` spend-authorization scheme (see below), denomination generation, `MintConfig`. |
-| `crates/mint-core` | `MintLogic`: `verify_note`, `verify_spend_authorization`, `redeem`, `issue`, `swap`, plus `store::Store` -- a thin wrapper around `sled` (a pure-Rust embedded KV store, chosen specifically so this crate needs no C/C++ toolchain to build). |
-| `server` | `sandbox-mintd`: one process, an Axum HTTP API, `MintLogic` behind a single `std::sync::Mutex` (this is a single-writer server -- see `state.rs`'s doc comment for why that's the whole correctness story, not a shortcut). |
+| `crates/mint-types` | `Amount` (a plain opaque unit count), `Note`/`Nonce`/`BlindNonce`, `MintInput`/`MintOutput`, the `transaction_sighash` and `melt_sighash` spend-authorization schemes (see below), denomination generation, `MintConfig`. |
+| `crates/mint-core` | `MintLogic`: `verify_note`, `verify_spend_authorization`, `redeem`, `issue`, `swap`, `melt`, plus `store::Store` -- a thin wrapper around `sled` (a pure-Rust embedded KV store, chosen specifically so this crate needs no C/C++ toolchain to build). |
+| `server` | `mintd` (crate `mint-server`): one process, an Axum HTTP API, `MintLogic` behind a single `std::sync::Mutex` (this is a single-writer server -- see `state.rs`'s doc comment for why that's the whole correctness story, not a shortcut). The mint repos reuse this crate. |
+
+## HTTP API
+
+| Route | What it does |
+|---|---|
+| `GET /keys` | Public key for each denomination. Clients need these to blind requests. |
+| `POST /admin/issue` | Unilateral issuance. Requires the admin bearer token. |
+| `POST /swap` | Redeem inputs, issue outputs. Inputs must cover outputs. Any surplus is burned, which is how a request pays for itself. |
+| `POST /melt` | Redeem inputs, issue nothing. Returns the total burned. The `memo` is bound into the spend signature. No admin token, the spend signatures are the authorization. |
+| `POST /check-state` | Whether each given nonce has been spent. |
+| `GET /audit` | Running `issued`, `redeemed` and `outstanding` totals. |
 
 ## On backing
 
-`MintLogic::issue` The function that blind-signs a note into existence
-is **unconditional**, on purpose. Nothing in this codebase cryptographically enforces that issued value is backed by anything.
+`MintLogic::issue`, the function that blind-signs a note into existence,
+is **unconditional**, on purpose. Nothing in this codebase cryptographically enforces that issued value is backed by anything. Deciding when to call it is the job of each mint repo's middleware.
 
 The entire mechanism separating "arbitrary issuance" from "a bug that lets
 anyone print money" is: `/admin/issue` requires a bearer token and is the
 only caller of `issue()` that doesn't also require spending real input
 value; `/swap` is the only other caller, and it explicitly checks
-`input_total >= output_total + fees` before issuing anything (see
-`MintLogic::swap`).
+`input_total >= output_total` before issuing anything (see
+`MintLogic::swap`). `/melt` never calls `issue()` at all.
 
-Guard `SANDBOX_MINT_ADMIN_TOKEN` accordingly, it is the only thing standing between this being "a mint you control" and "a mint anyone can print from."
+Guard `MINT_ADMIN_TOKEN` accordingly, it is the only thing standing between this being "a mint you control" and "a mint anyone can print from."
 
 The `/audit` endpoint's `issued`/`redeemed`/`outstanding` totals are
 bookkeeping, not a solvency proof: nothing here is independently verifiable
@@ -46,13 +59,15 @@ identity (its serialized bytes are what gets hashed to a curve point for
 BDHKE) *and* a secp256k1 keypair, whose private half only the holder knows.
 
 Spending a note means Schnorr-signing `transaction_sighash(inputs, outputs)` which is a hash committing to the *entire* swap request, not just "I own this
-note" in isolation. Verified in `MintLogic::verify_spend_authorization`, checked for every input before `swap` touches storage. 
+note" in isolation. Verified in `MintLogic::verify_spend_authorization`, checked for every input before `swap` touches storage.
 
-**If you write your own client based on this implementation logic, treat `MintInput` construction and `transaction_sighash` as the single most security-critical code path in this repo.**
+A melt signs `melt_sighash(inputs, memo)` instead. It is domain-separated, so a swap signature can't be replayed as a melt or the other way round. The `memo` lets the caller tie the burn to something outside this mint, for example a hash of outputs issued elsewhere. `melt` checks every input before burning any of them. 
+
+**If you write your own client based on this implementation logic, treat `MintInput` construction and the sighash functions as the single most security-critical code path in this repo.**
 
 ## Notes on BDHKE
 
-Plain BDHKE this project used to build on, is **not publicly verifiable**. Given only the mint's public key for a denomination, there is no way to confirm a signature is genuine. Doing so would require either the mint's own private key, or an additional non-interactive proof (Cashu calls this a NUT-12 "DLEQ proof"). This implementation does not implement DLEQ proof. This carries two consequences worth knowing:
+Plain BDHKE is **not publicly verifiable**. Given only the mint's public key for a denomination, there is no way to confirm a signature is genuine. Doing so would require either the mint's own private key, or an additional non-interactive proof (Cashu calls this a NUT-12 "DLEQ proof"). This implementation does not implement DLEQ proof. This carries two consequences worth knowing:
 
 - **Server-side, nothing is lost.** `MintLogic::verify_note` runs where the
   private key already lives (the mint itself, at redemption time), so the
@@ -96,7 +111,7 @@ carries privacy in practice:
 
 ## Scaling considerations
 
-Every mutating request (`issue`, `swap`) and every read (`get_keys`,
+Every mutating request (`issue`, `swap`, `melt`) and every read (`get_keys`,
 `check_state`, `audit`) goes through one `std::sync::Mutex` around
 `MintLogic`. This is what makes the single-writer correctness argument in
 `store.rs` hold, but it serializes all API traffic globally, not just
@@ -139,23 +154,25 @@ serialize against each other.
   format for handing a note to someone out of band.
 - **DLEQ proofs (offline note verification).** See above.
 - **Wallet recovery from seed.**
+- **A pre-check in `swap`.** `melt` checks every input before burning any. `swap` does not yet, so a bad later input can fail after an earlier one is already burned.
+- **Terms-bound notes.** Signing keys derived per denomination and terms (service, redeemable-after date), plus a verify call so a third party can check a note.
+- **Fast-path throughput.** An in-memory spent set with batched writes, for mints that must accept very high request rates.
 
 ## Running it
 
 ```sh
-export SANDBOX_MINT_ADMIN_TOKEN=$(openssl rand -hex 32)
-cargo run --bin sandbox-mintd
+export MINT_ADMIN_TOKEN=$(openssl rand -hex 32)
+cargo run --bin mintd
 # in another shell:
-SANDBOX_MINT_ADMIN_TOKEN=$SANDBOX_MINT_ADMIN_TOKEN cargo run --example smoke_test -p sandbox-mint-server
+MINT_ADMIN_TOKEN=$MINT_ADMIN_TOKEN cargo run --example smoke_test -p mint-server
 ```
 
 Config is entirely environment variables (see `server/src/config.rs`):
-`SANDBOX_MINT_DATA_DIR` (default `./data`), `SANDBOX_MINT_BIND` (default
-`127.0.0.1:3000`), `SANDBOX_MINT_ADMIN_TOKEN` (required, no default --
-refusing to start without one is deliberate), `SANDBOX_MINT_FEE_PPM`
-(default `0`, i.e. genuinely free transfers), `SANDBOX_MINT_MAX_DENOMINATION`
+`MINT_DATA_DIR` (default `./data`), `MINT_BIND` (default
+`127.0.0.1:3000`), `MINT_ADMIN_TOKEN` (required, no default --
+refusing to start without one is deliberate), `MINT_MAX_DENOMINATION`
 (default `1048576`, a plain unit count -- no bitcoin conversion happens
-anywhere in this fork).
+anywhere in this codebase).
 
 The keypair is generated on first run and written to
 `<data_dir>/mint_keys.json` with `0600` permissions. It is the entire secret

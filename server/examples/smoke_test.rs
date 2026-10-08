@@ -1,14 +1,14 @@
-//! End-to-end check against a running `sandbox-mintd`: issue a note out of
+//! End-to-end check against a running `mintd`: issue a note out of
 //! thin air via `/admin/issue`, then swap it for a fresh note the way two
 //! users transferring ecash would.
 //!
 //! Start the server first, then:
 //!
 //! ```sh
-//! SANDBOX_MINT_ADMIN_TOKEN=devtoken cargo run --example smoke_test -p sandbox-mint-server
+//! MINT_ADMIN_TOKEN=devtoken cargo run --example smoke_test -p mint-server
 //! ```
 //!
-//! `SANDBOX_MINT_URL` (default `http://127.0.0.1:3000`) points it elsewhere.
+//! `MINT_URL` (default `http://127.0.0.1:3000`) points it elsewhere.
 //!
 //! Note what this script does *not* do: after issuance, it does not
 //! self-verify Alice's note before spending it. Plain BDHKE isn't publicly
@@ -18,7 +18,7 @@
 
 use mint_types::{BlindNonce, MintInput, MintOutput, Nonce, transaction_sighash};
 use rand::rngs::OsRng;
-use sandbox_mint_server::api::{
+use mint_server::api::{
     CheckStateRequest, CheckStateResponse, IssueRequest, IssueResponse, KeysResponse,
     SwapRequest, SwapResponse,
 };
@@ -33,9 +33,9 @@ fn new_note_identity() -> (Nonce, Keypair) {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let base = std::env::var("SANDBOX_MINT_URL").unwrap_or_else(|_| "http://127.0.0.1:3000".into());
-    let admin_token = std::env::var("SANDBOX_MINT_ADMIN_TOKEN")
-        .map_err(|_| anyhow::anyhow!("SANDBOX_MINT_ADMIN_TOKEN must be set"))?;
+    let base = std::env::var("MINT_URL").unwrap_or_else(|_| "http://127.0.0.1:3000".into());
+    let admin_token = std::env::var("MINT_ADMIN_TOKEN")
+        .map_err(|_| anyhow::anyhow!("MINT_ADMIN_TOKEN must be set"))?;
     let http = reqwest::Client::new();
 
     // 1. Learn the mint's public keys.

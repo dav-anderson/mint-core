@@ -1,4 +1,4 @@
-//! Note/nonce/amount/config types for the sandbox mint.
+//! Note/nonce/amount/config types for the mint.
 
 //! BDHKE has no vestigial multi-party/threshold code (Cashu's protocol,
 //! which defines BDHKE) and it's checkable against a published, cross-implementation
@@ -191,7 +191,7 @@ pub fn transaction_sighash(inputs: &[MintInput], outputs: &[MintOutput]) -> [u8;
     hasher.finalize().into()
 }
 
-const MELT_SIGHASH_TAG: &[u8] = b"sandbox-mint/melt/v1";
+const MELT_SIGHASH_TAG: &[u8] = b"mint-core/melt/v1";
 
 pub fn melt_sighash(inputs: &[MintInput], memo: &[u8]) -> [u8; 32] {
     let mut hasher = sha2::Sha256::new();

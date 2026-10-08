@@ -19,18 +19,18 @@ pub struct Settings {
 impl Settings {
     pub fn from_env() -> anyhow::Result<Self> {
         let bind_addr =
-            std::env::var("SANDBOX_MINT_BIND").unwrap_or_else(|_| "127.0.0.1:3000".into());
-        let data_dir = std::env::var("SANDBOX_MINT_DATA_DIR").unwrap_or_else(|_| "./data".into());
-        let admin_token = std::env::var("SANDBOX_MINT_ADMIN_TOKEN").map_err(|_| {
+            std::env::var("MINT_BIND").unwrap_or_else(|_| "127.0.0.1:3000".into());
+        let data_dir = std::env::var("MINT_DATA_DIR").unwrap_or_else(|_| "./data".into());
+        let admin_token = std::env::var("MINT_ADMIN_TOKEN").map_err(|_| {
             anyhow::anyhow!(
-                "SANDBOX_MINT_ADMIN_TOKEN must be set -- it's the only thing gating unilateral \
+                "MINT_ADMIN_TOKEN must be set -- it's the only thing gating unilateral \
                  issuance. Generate one yourself, e.g.: openssl rand -hex 32"
             )
         })?;
 
         // A plain count of this mint's own unit. Default gives a
         // denomination ladder of 1, 2, 4, ... up to 2^20.
-        let max_denomination_units: u64 = std::env::var("SANDBOX_MINT_MAX_DENOMINATION")
+        let max_denomination_units: u64 = std::env::var("MINT_MAX_DENOMINATION")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(1_048_576);

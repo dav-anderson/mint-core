@@ -1,4 +1,4 @@
-//! Library surface for `sandbox-mint-server`: state, configuration, and
+//! Library surface for `mint-server`: state, configuration, and
 //! the transport-agnostic request/response dispatch functions in `api`.
 //! No networking lives in this crate. Something else (a local IPC
 //! mechanism, or nothing at all if wallet and mint share a process) is

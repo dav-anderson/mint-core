@@ -1,16 +1,16 @@
 [package]
-name = "sandbox-mint-server"
+name = "mint-server"
 description = "Thin single-process HTTP server exposing mint-core over the network. There is no consensus engine, no P2P networking, and no fedimint or cashu/cdk dependency anywhere in this crate's dependency graph."
 version = "0.1.0"
 edition = { workspace = true }
 license = { workspace = true }
 
 [lib]
-name = "sandbox_mint_server"
+name = "mint_server"
 path = "src/lib.rs"
 
 [[bin]]
-name = "sandbox-mintd"
+name = "mintd"
 path = "src/main.rs"
 
 [dependencies]

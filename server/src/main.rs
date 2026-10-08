@@ -1,13 +1,13 @@
-//! `sandbox-mintd`: one process, one key, a plain HTTP API.
+//! `mintd`: one process, one key, a plain HTTP API.
 //! Just `mint-core` (issuance/redemption logic) wired to Axum routes.
 
 use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::{get, post};
-use sandbox_mint_server::api;
-use sandbox_mint_server::config::Settings;
-use sandbox_mint_server::state::AppState;
+use mint_server::api;
+use mint_server::config::Settings;
+use mint_server::state::AppState;
 use tracing::info;
 
 #[tokio::main]
@@ -32,7 +32,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/audit", get(api::audit))
         .with_state(state);
 
-    info!(%bind_addr, "sandbox-mintd listening");
+    info!(%bind_addr, "mintd listening");
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     axum::serve(listener, app).await?;
 

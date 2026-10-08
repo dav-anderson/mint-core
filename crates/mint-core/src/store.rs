@@ -12,7 +12,7 @@
 //! the read-then-write sequences below (check a nonce isn't spent, then
 //! mark it) safe: there's exactly one in-process writer at a time. A
 //! multi-process or multi-writer deployment would need real transactions
-//! here; a single `sandbox-mintd` process does not.
+//! here; a single `mintd` process does not.
 
 use std::path::Path;
 
