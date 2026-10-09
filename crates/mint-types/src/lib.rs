@@ -1,14 +1,10 @@
 //! Note/nonce/amount/config types for the mint.
-
-//! BDHKE has no vestigial multi-party/threshold code (Cashu's protocol,
-//! which defines BDHKE) and it's checkable against a published, cross-implementation
-//! set of test vectors (see `crypto/bdhke`'s tests).
-
-//! plain BDHKE is **not publicly verifiable**. Given
+//!
+//! Plain BDHKE is **not publicly verifiable**. Given
 //! only the mint's public key for a denomination, there's no way to confirm
 //! a signature is genuine. Verifying requires either the mint's private
-//! key, or an additional non-interactive proof (Cashu's NUT-12 "DLEQ
-//! proof") that is not presently implemented. In practice this means a
+//! key, or an additional non-interactive proof (a DLEQ proof) that is not
+//! presently implemented. In practice this means a
 //! holder can't cryptographically self-check a note the instant they
 //! receive it; the check that matters, can this note actually be redeemed,
 //! happens only when they try to spend it.
@@ -24,8 +20,7 @@ use thiserror::Error;
 pub const DEFAULT_DENOMINATION_BASE: u16 = 2;
 
 /// A count of this mint's own unit of value. Deliberately opaque and
-/// unbacked there is no bitcoin, satoshi, or millisatoshi concept
-/// anywhere; `units` means only the denominations intrinsic to the mint 
+/// unbacked: `units` means only the denominations intrinsic to the mint
 /// for a given note, nothing more.
 #[derive(
     Copy, Clone, Debug, Default, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize, Deserialize,
@@ -193,6 +188,8 @@ pub fn transaction_sighash(inputs: &[MintInput], outputs: &[MintOutput]) -> [u8;
 
 const MELT_SIGHASH_TAG: &[u8] = b"mint-core/melt/v1";
 
+/// The digest each input signs for a melt. Commits to the inputs and the memo
+/// under a tag that keeps it distinct from [`transaction_sighash`].
 pub fn melt_sighash(inputs: &[MintInput], memo: &[u8]) -> [u8; 32] {
     let mut hasher = sha2::Sha256::new();
     hasher.update(MELT_SIGHASH_TAG);
@@ -215,9 +212,8 @@ pub struct MintOutput {
 
 /// The mint's response to a [`MintOutput`]: a blind signature (`C_` in
 /// BDHKE terms) the client unblinds locally (with the blinding key only
-/// they know) to get a spendable [`Note`]. We return this synchronously in
-/// the HTTP response rather than requiring the client to poll for it --
-/// there's no consensus round to wait on.
+/// they know) to get a spendable [`Note`]. It is returned synchronously in
+/// the HTTP response.
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub struct MintOutputOutcome(pub secp256k1::PublicKey);
 

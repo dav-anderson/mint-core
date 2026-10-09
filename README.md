@@ -13,7 +13,7 @@ This workspace's only cryptographic dependencies are the `secp256k1` and `sha2` 
 
 | Crate | What it is |
 |---|---|
-| `crypto/bdhke` | The blind-signature primitive: `hash_to_curve`, `blind_message`, `sign_message`, `unblind_message`, `verify_message`. ~150 lines, zero vestigial multi-party code, tested against NUT-00's published test vectors. |
+| `crypto/bdhke` | The blind-signature primitive: `hash_to_curve`, `blind_message`, `sign_message`, `unblind_message`, `verify_message`. ~150 lines, tested against test vectors borrowed from Cashu's NUT-00 spec. |
 | `crates/mint-types` | `Amount` (a plain opaque unit count), `Note`/`Nonce`/`BlindNonce`, `MintInput`/`MintOutput`, the `transaction_sighash` and `melt_sighash` spend-authorization schemes (see below), denomination generation, `MintConfig`. |
 | `crates/mint-core` | `MintLogic`: `verify_note`, `verify_spend_authorization`, `redeem`, `issue`, `swap`, `melt`, plus `store::Store` -- a thin wrapper around `sled` (a pure-Rust embedded KV store, chosen specifically so this crate needs no C/C++ toolchain to build). |
 | `server` | `mintd` (crate `mint-server`): one process, an Axum HTTP API, `MintLogic` behind a single `std::sync::Mutex` (this is a single-writer server -- see `state.rs`'s doc comment for why that's the whole correctness story, not a shortcut). The mint repos reuse this crate. |
@@ -67,7 +67,7 @@ A melt signs `melt_sighash(inputs, memo)` instead. It is domain-separated, so a 
 
 ## Notes on BDHKE
 
-Plain BDHKE is **not publicly verifiable**. Given only the mint's public key for a denomination, there is no way to confirm a signature is genuine. Doing so would require either the mint's own private key, or an additional non-interactive proof (Cashu calls this a NUT-12 "DLEQ proof"). This implementation does not implement DLEQ proof. This carries two consequences worth knowing:
+Plain BDHKE is **not publicly verifiable**. Given only the mint's public key for a denomination, there is no way to confirm a signature is genuine. Doing so would require either the mint's own private key, or an additional non-interactive proof (a "DLEQ proof"). This implementation does not implement one. This carries two consequences worth knowing:
 
 - **Server-side, nothing is lost.** `MintLogic::verify_note` runs where the
   private key already lives (the mint itself, at redemption time), so the
@@ -78,10 +78,9 @@ Plain BDHKE is **not publicly verifiable**. Given only the mint's public key for
   asking the mint. In practice, the check for whether or not a note can
   actually be redeemed happens the moment they try to spend it (see
   `server/examples/smoke_test.rs`, which relies on a successful `/swap` as
-  its proof rather than an offline check). This mirrors how Cashu
-  wallets behave without NUT-12 DLEQ proofs.
+  its proof rather than an offline check).
 
-If you want offline verification, NUT-12's DLEQ proof is a
+If you want offline verification, a DLEQ proof is a
 well-specified, moderate addition: the mint computes `e = hash(R1, R2, A,
 C')` and `s = r + e*a mod n` alongside its signature; the client recomputes
 `R1 = sG - eA`, `R2 = sB' - eC'`, and checks `e == hash(R1, R2, A, C')`.
@@ -123,11 +122,10 @@ of `sled` operations, microseconds to low milliseconds. The bottleneck
 becomes real only under high concurrent load, where reads queue up behind
 unrelated writes even though they don't need to.
 
-Production Cashu implementations (CDK, Nutshell) avoid this by pushing the
-double-spend check into a real database's transaction or row-locking
-machinery instead of one process-wide lock. Two requests touching different
-notes run in parallel; only requests colliding on the same note actually
-serialize.
+A database with real transactions or row-level locking avoids this by pushing
+the double-spend check into the database instead of one process-wide lock. Two
+requests touching different notes run in parallel; only requests colliding on
+the same note actually serialize.
 
 `Mutex::lock()` blocks rather than fails. There is no request queue and no
 fairness guarantee across waiters; concurrent requests pile up as blocked
@@ -160,6 +158,8 @@ serialize against each other.
 
 ## Running it
 
+Needs Rust 1.85 or newer (the workspace uses edition 2024). The token command uses `openssl`, but any random string works.
+
 ```sh
 export MINT_ADMIN_TOKEN=$(openssl rand -hex 32)
 cargo run --bin mintd
@@ -171,10 +171,54 @@ Config is entirely environment variables (see `server/src/config.rs`):
 `MINT_DATA_DIR` (default `./data`), `MINT_BIND` (default
 `127.0.0.1:3000`), `MINT_ADMIN_TOKEN` (required, no default --
 refusing to start without one is deliberate), `MINT_MAX_DENOMINATION`
-(default `1048576`, a plain unit count -- no bitcoin conversion happens
-anywhere in this codebase).
+(default `1048576`, a plain unit count).
 
 The keypair is generated on first run and written to
 `<data_dir>/mint_keys.json` with `0600` permissions. It is the entire secret
 behind every note this mint will ever issue or redeem -- back it up, and
 never let a redeploy silently regenerate it out from under existing notes.
+
+## Testing
+
+```sh
+cargo test --workspace
+```
+
+This runs the `bdhke` test vectors (borrowed from Cashu's NUT-00 spec). The other crates have no unit tests yet.
+
+The smoke test covers `/keys`, `/admin/issue`, `/swap` and `/check-state` against a running `mintd`. It does not call `/melt` or `/audit`, and it does not try a double spend or a bad token. Check those by hand with the examples below.
+
+## Wire format
+
+All bodies are JSON. Public keys, nonces, blind nonces and blind signatures are compressed secp256k1 points as 66 hex characters. Spend signatures are Schnorr signatures as 128 hex characters. Amounts are plain integers. Errors return `{"error": "..."}` with status 400 (bad request), 401 (bad or missing admin token) or 500 (storage).
+
+| Route | Request | Response |
+|---|---|---|
+| `GET /keys` | none | `{"keys": {"1": "<pubkey>", "2": ...}}` |
+| `POST /admin/issue` | `{"output": {"amount", "blind_nonce"}}` | `{"outcome": "<blind signature>"}` |
+| `POST /swap` | `{"inputs": [...], "outputs": [...]}` | `{"outcomes": [...]}` |
+| `POST /melt` | `{"inputs": [...], "memo": "..."}` | `{"burned": n}` |
+| `POST /check-state` | `{"nonces": [...]}` | `{"spent": [bool, ...]}` |
+| `GET /audit` | none | `{"issued", "redeemed", "outstanding"}` |
+
+An input is `{"amount", "note": {"nonce", "signature"}, "spend_signature"}`. An output is `{"amount", "blind_nonce"}`.
+
+```sh
+curl http://127.0.0.1:3000/keys
+curl http://127.0.0.1:3000/audit
+
+# any valid curve point works as a stand-in blinded nonce (here the generator point)
+curl -X POST http://127.0.0.1:3000/admin/issue \
+  -H "Authorization: Bearer $MINT_ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"output":{"amount":1,"blind_nonce":"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"}}'
+```
+
+Run the issue call a second time and it returns 400 (blind nonce already used). Drop the header and it returns 401. The note it signs can't be spent, because nobody holds a blinding key for that point. For a real round trip use the smoke test. Building `/swap` and `/melt` requests by hand needs the blinding and Schnorr signing code, which only exists in `smoke_test.rs`.
+
+## Versioning
+
+Semantic Versioning. All four crates share one version, set in the root `Cargo.toml` and recorded in `CHANGELOG.md`. Releases are git tags named `vMAJOR.MINOR.PATCH`. Breaking means a change to the JSON wire format, the on-disk store or keyfile format, or the public Rust API. Before 1.0, a minor bump may break and a patch bump will not. The mint repos should depend on a tag:
+
+```toml
+mint-core = { git = "https://github.com/dav-anderson/mint-core", tag = "v0.1.0" }
+```

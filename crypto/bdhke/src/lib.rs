@@ -1,16 +1,12 @@
 //! Blind Diffie-Hellman Key Exchange: the blind-signature primitive this
 //! mint uses to issue and redeem notes.
 
-//! This is a from-scratch implementation of the five operations Cashu's
-//! [NUT-00 spec](https://cashubtc.github.io/nuts/00/) defines for BDHKE. 
-// It exists because we wanted the *properties* NUT-00 describes 
-// 1. plain secp256k1 math
-// 2. no vestigial multi-party machinery
-// 3. published set of test vectors we can check our own work against without 
-// adopting Cashu's wire format, its token types, or any of its 
-// Bitcoin/Lightning-flavored surrounding code. 
-
-// Nothing outside this crate needs to know BDHKE is what's underneath; from
+//! A from-scratch implementation of the five operations below, on plain
+//! secp256k1. Borrowed from Cashu: the scheme, the `hash_to_curve` domain
+//! separator and the test vectors, all from its published NUT-00 spec
+//! (https://cashubtc.github.io/nuts/00/).
+//!
+//! Nothing outside this crate needs to know BDHKE is what's underneath; from
 //! `mint-core`'s perspective this is just "sign" and "verify."
 //!
 //! ## The scheme, in five functions
@@ -32,18 +28,15 @@
 //!   valid signature on `Y` that the mint never saw being computed. This
 //!   step is what makes a note issued to Alice unlinkable from the note she
 //!   later redeems: the mint has no record connecting `B_` to `C`.
-//! - [`verify_message`]: anyone holding the mint's public key can confirm
-//!   `C == kY` without the private key `k`.
+//! - [`verify_message`]: the mint, which holds `k`, confirms `C == kY`.
+//!   Without `k` there is no way to check this (see the README's "Notes on
+//!   BDHKE").
 //!
-//! ## Why the domain separator matches NUT-00's
+//! ## Domain separator
 //!
-//! `hash_to_curve`'s domain separator string below is the literal one
-//! specified in NUT-00, not something we chose ourselves. It has to be, for
-//! to check our implementation against NUT-00's published test vectors 
-// the entire point of building on a spec with
-//! published answer keys instead of a bespoke scheme. This does **not**
-//! make this mint wire-compatible with Cashu, it just means this one function, 
-// in isolation, reproduces the reference answers.
+//! The `hash_to_curve` domain separator below is the one NUT-00 specifies, so
+//! this function reproduces the published test vectors. This does **not**
+//! make the mint wire-compatible with Cashu.
 
 use secp256k1::{Parity, PublicKey, Scalar, SecretKey, XOnlyPublicKey, SECP256K1};
 use sha2::{Digest, Sha256};
@@ -128,11 +121,9 @@ pub fn verify_message(k: &SecretKey, unblinded_message: PublicKey, msg: &[u8]) -
 
 #[cfg(test)]
 mod tests {
-    //! These test vectors are copied from NUT-00's published test
-    //! vectors (https://cashubtc.github.io/nuts/00/), they're the spec's answer key, 
-    // and the reason this crate can claim its `hash_to_curve` and
-    //! blind/sign/unblind math is correct against an interoperable
-    //! reference.
+    //! Test vectors borrowed from Cashu's published NUT-00 spec
+    //! (https://cashubtc.github.io/nuts/00/). They are the reference answers
+    //! for `hash_to_curve` and the blind/sign/unblind math.
 
     use secp256k1::PublicKey;
 

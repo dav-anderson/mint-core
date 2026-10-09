@@ -3,11 +3,11 @@
 //! burning a note by reusing a blinding factor), and running issued/redeemed
 //! totals for the `/audit` endpoint.
 //!
-// A thin, wrapper around `sled` provides a pure-Rust embedded key-value store, so
+//! A thin wrapper around `sled`, a pure-Rust embedded key-value store, so
 //! this crate needs no C/C++ toolchain to build.
-
+//!
 //! `MintLogic`'s callers are expected to serialize
-//! mutating calls (`issue`/`redeem`/`swap`) see `server::AppState`, which
+//! mutating calls (`issue`/`redeem`/`swap`/`melt`), see `server::AppState`, which
 //! holds `MintLogic` behind a single `std::sync::Mutex`. That's what makes
 //! the read-then-write sequences below (check a nonce isn't spent, then
 //! mark it) safe: there's exactly one in-process writer at a time. A
@@ -54,8 +54,7 @@ impl Store {
 
     /// Marks `nonce` spent. Returns `true` if this call is the one that
     /// spent it, `false` if it was already spent (the double-spend case --
-    /// **extremely safety critical**, per the original fedimint code this
-    /// was adapted from).
+    /// **extremely safety critical**).
     pub fn mark_nonce_spent(&self, nonce: &Nonce) -> anyhow::Result<bool> {
         let prior = self.db.insert(Self::nonce_key(nonce), &[][..])?;
         Ok(prior.is_none())

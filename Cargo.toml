@@ -8,14 +8,14 @@ members = [
 ]
 
 [workspace.package]
+version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 license = "MIT"
-authors = ["<your project>"]
 
-# No fedimint dependency, no cashu/cdk dependency: this workspace's only
-# cryptographic dependency is plain secp256k1. `crypto/bdhke` is a
-# from-scratch implementation of Cashu's published BDHKE spec (see that
-# crate's doc comment), not vendored source from either project.
+# This workspace's only cryptographic dependencies are plain secp256k1 and
+# sha2. `crypto/bdhke` is a from-scratch BDHKE implementation (see that crate's
+# doc comment).
 [workspace.dependencies]
 secp256k1 = { version = "0.30", default-features = false, features = ["global-context", "rand", "serde"] }
 sha2 = "0.10"

@@ -1,8 +1,9 @@
 [package]
 name = "mint-core"
-description = "Note issuance/redemption logic for the mint: verify, issue, redeem, swap. No fedimint dependency, no cashu/cdk dependency -- signs and verifies via the `bdhke` crate, stores state via a thin `sled` wrapper."
-version = "0.1.0"
+description = "Note issuance/redemption logic for the mint: verify, issue, redeem, swap, melt. Signs and verifies via the `bdhke` crate, stores state via a thin `sled` wrapper."
+version = { workspace = true }
 edition = { workspace = true }
+rust-version = { workspace = true }
 license = { workspace = true }
 
 [dependencies]

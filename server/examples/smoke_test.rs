@@ -14,7 +14,7 @@
 //! self-verify Alice's note before spending it. Plain BDHKE isn't publicly
 //! verifiable (see `mint-types`'s module doc comment), so there's no
 //! offline check to run here, the swap succeeding *is* the proof the note
-//! was genuine, same as it is for a real Cashu wallet without a DLEQ proof.
+//! was genuine.
 
 use mint_types::{BlindNonce, MintInput, MintOutput, Nonce, transaction_sighash};
 use rand::rngs::OsRng;

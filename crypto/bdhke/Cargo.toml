@@ -1,8 +1,9 @@
 [package]
 name = "bdhke"
-description = "Blind Diffie-Hellman Key Exchange: the blind-signature primitive this mint signs and redeems notes with. A from-scratch, minimal implementation of the five operations defined by Cashu's NUT-00 spec (hash_to_curve, blind, sign, unblind, verify) against plain secp256k1 -- not a copy of any Cashu/CDK source file. Correctness is checked against NUT-00's own published test vectors in this crate's tests, not against CDK's code."
-version = "0.1.0"
+description = "Blind Diffie-Hellman Key Exchange: the blind-signature primitive this mint signs and redeems notes with. A from-scratch implementation of the five operations (hash_to_curve, blind, sign, unblind, verify) on plain secp256k1, checked against test vectors borrowed from Cashu's NUT-00 spec."
+version = { workspace = true }
 edition = { workspace = true }
+rust-version = { workspace = true }
 license = { workspace = true }
 
 [dependencies]

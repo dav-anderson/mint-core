@@ -1,8 +1,9 @@
 [package]
 name = "mint-types"
-description = "Note/nonce/amount/config types for the mint. Adapted from fedimint's fedimint-mint-common, with the federation-oriented parts (versioned Input/Output enums for rolling multi-guardian upgrades, per-peer key maps, consensus-encoding) removed, and now depending directly on secp256k1 instead of through fedimint-core -- this crate has no fedimint dependency."
-version = "0.1.0"
+description = "Note, nonce, amount and config types for the mint."
+version = { workspace = true }
 edition = { workspace = true }
+rust-version = { workspace = true }
 license = { workspace = true }
 
 [dependencies]

@@ -1,8 +1,9 @@
 [package]
 name = "mint-server"
-description = "Thin single-process HTTP server exposing mint-core over the network. There is no consensus engine, no P2P networking, and no fedimint or cashu/cdk dependency anywhere in this crate's dependency graph."
-version = "0.1.0"
+description = "Thin single-process HTTP server exposing mint-core over the network."
+version = { workspace = true }
 edition = { workspace = true }
+rust-version = { workspace = true }
 license = { workspace = true }
 
 [lib]

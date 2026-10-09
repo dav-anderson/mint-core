@@ -1,17 +1,13 @@
-//! Request/response dispatch for the mint's operations: key discovery,
+//! Request/response handlers for the mint's operations: key discovery,
 //! issuing new notes, the swap/transfer that gives ecash its privacy
-//! property, checking whether a note has been spent, and an audit view
-//! of running totals.
+//! property, burning notes with melt, checking whether a note has been
+//! spent, and an audit view of running totals.
 //!
-//! These are plain, synchronous functions, not network handlers. Every
-//! request/response type here still derives `Serialize`/`Deserialize`, so
-//! a caller on the other side of whatever local mechanism is in use can
-//! treat these exactly as JSON payloads, the same shape they'd be if this
-//! were served over HTTP, just without this crate doing any socket I/O
-//! itself.
+//! These are Axum handlers. Request and response types are JSON via
+//! `Serialize`/`Deserialize`.
 //!
 //! `MintLogic`'s methods are plain (non-async) calls behind a
-//! `std::sync::Mutex` (see `state::AppState`'s doc comment); each function
+//! `std::sync::Mutex` (see `state::AppState`'s doc comment); each handler
 //! takes the lock, does its work, and drops it before returning.
 
 use std::collections::BTreeMap;
@@ -61,9 +57,8 @@ pub struct IssueResponse {
     pub outcome: MintOutputOutcome,
 }
 
-/// The unilateral-issuance operation. `admin_token` is whatever the
-/// caller received over its own transport, this function only compares
-/// it, it does not know or care how it arrived.
+/// The unilateral-issuance operation. The admin token comes from the
+/// `Authorization: Bearer` header and is compared in constant time.
 pub async fn admin_issue(
     State(state): State<SharedState>,
     headers: HeaderMap,
@@ -129,17 +124,21 @@ pub async fn swap(
 
 // ---- melt ---------------------------------------------------------
 
+/// Burns `inputs`. `memo` is signed by every input, so a burn can be tied to
+/// something outside this mint.
 #[derive(Deserialize, Serialize)]
 pub struct MeltRequest {
     pub inputs: Vec<MintInput>,
     pub memo: String,
 }
 
+/// Total value burned.
 #[derive(Serialize, Deserialize)]
 pub struct MeltResponse {
     pub burned: Amount,
 }
 
+/// Burns the given notes without issuing any, see `mint-core::MintLogic::melt`.
 pub async fn melt(
     State(state): State<SharedState>,
     Json(req): Json<MeltRequest>,
@@ -206,10 +205,7 @@ pub async fn audit(State(state): State<SharedState>) -> Result<Json<AuditRespons
 
 // ---- errors ---------------------------------------------------------------
 
-/// A status/message pair mirroring the shape an HTTP error response would
-/// take, so a caller sitting on top of these functions can produce the
-/// same wire-visible error body whether or not anything actually travels
-/// over IP.
+/// A status and message, returned to the client as `{"error": message}`.
 #[derive(Debug)]
 pub struct ApiError {
     pub status: StatusCode,

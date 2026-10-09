@@ -1,11 +1,9 @@
-//! Note issuance and redemption logic: verify, issue, redeem, swap.
-
-// signing and verifying go through `bdhke` (plain secp256k1 Blind Diffie-Hellman 
-// Key Exchange)
-
-// `verify_note` below needs this mint's own secret key to
-// check a note's signature, because plain BDHKE isn't publicly verifiable.
-// This method only ever runs here, server-side, where the key already lives.
+//! Note issuance and redemption logic: verify, issue, redeem, swap, melt.
+//!
+//! Signing and verifying go through `bdhke` (plain secp256k1 Blind
+//! Diffie-Hellman Key Exchange). `verify_note` needs this mint's own secret
+//! key, because plain BDHKE isn't publicly verifiable, so it only ever runs
+//! here, server-side, where the key already lives.
 
 pub mod keygen;
 pub mod store;
@@ -45,9 +43,9 @@ impl MintLogic {
     }
 
     /// Confirms the note's BDHKE signature is genuine for its claimed
-    /// denomination. Needs this mint's own secret key;
-    //  does **not** by itself prove the presenter is authorized to spend the note 
-    // see [`MintLogic::verify_spend_authorization`] and `mint-types::MintInput`
+    /// denomination. Needs this mint's own secret key. Does **not** by itself
+    /// prove the presenter is authorized to spend the note, see
+    /// [`MintLogic::verify_spend_authorization`] and `mint-types::MintInput`.
     pub fn verify_note(&self, input: &MintInput) -> Result<(), MintInputError> {
         let sk = self
             .sk
@@ -105,9 +103,9 @@ impl MintLogic {
     }
 
     /// Blind-sign the requested nonce and record it as issued.
-    /// **Unconditional** This is the "unilateral, arbitrary issuance" 
-    /// primitive; every other entry point in this crate is either 
-    // read-only or built out of this plus [`MintLogic::redeem`].
+    /// **Unconditional**: this is the "unilateral, arbitrary issuance"
+    /// primitive; every other entry point in this crate is either
+    /// read-only or built out of this plus [`MintLogic::redeem`].
     pub fn issue(&self, output: &MintOutput) -> Result<MintOutputOutcome, MintOutputError> {
         let sk = self
             .sk
@@ -131,10 +129,10 @@ impl MintLogic {
         Ok(MintOutputOutcome(blinded_signature))
     }
 
-    /// Redeem `inputs` and issue `outputs` atomically (from the caller's
-    /// perspective, enforcing that this is a transfer and
-    /// not a backdoor mint: total input value (minus fees) must cover total
-    /// output value. This is the swap/reissue operation, the thing two
+    /// Redeem `inputs` and issue `outputs`, enforcing that this is a transfer and
+    /// not a backdoor mint: total input value must cover total
+    /// output value. Not atomic yet: inputs are redeemed one at a time, so a
+    /// failure partway can leave earlier inputs spent (see README, Deferred). This is the swap/reissue operation, the thing two
     /// users actually do to hand ecash to each other, and the step that
     /// makes the handoff unlinkable. It is deliberately the *only* other
     /// caller of `issue` in this crate besides the admin path.
@@ -186,6 +184,9 @@ impl MintLogic {
         Ok(outcomes)
     }
 
+    /// Redeem `inputs` and issue nothing, returning the total burned. Every
+    /// input is checked (genuine, spend signature over `melt_sighash`, not
+    /// spent, no duplicates) before any is marked spent.
     pub fn melt(&self, inputs: &[MintInput], memo: &[u8]) -> Result<Amount, MintInputError> {
         if inputs.is_empty() {
             return Err(MintInputError::Internal("melt requires at least one input".into()));
