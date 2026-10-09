@@ -95,7 +95,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "bdhke"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hex",
  "rand",
@@ -667,7 +667,7 @@ checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
 name = "mint-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bdhke",
@@ -679,8 +679,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "mint-server"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "bdhke",
+ "mint-core",
+ "mint-types",
+ "rand",
+ "reqwest",
+ "secp256k1",
+ "serde",
+ "serde_json",
+ "subtle",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "mint-types"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hex",
  "secp256k1",
@@ -919,26 +939,6 @@ name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
-
-[[package]]
-name = "sandbox-mint-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "bdhke",
- "mint-core",
- "mint-types",
- "rand",
- "reqwest",
- "secp256k1",
- "serde",
- "serde_json",
- "subtle",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
 
 [[package]]
 name = "scopeguard"

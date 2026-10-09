@@ -11,7 +11,7 @@ pub mod store;
 use std::collections::BTreeMap;
 
 use mint_types::{
-    Amount, MintConfig, MintInput, MintInputError, MintOutput, MintOutputError,
+    Amount, BlindNonce, MintConfig, MintInput, MintInputError, MintOutput, MintOutputError,
     MintOutputOutcome, Nonce, melt_sighash, transaction_sighash,
 };
 use secp256k1::{PublicKey, SECP256K1, SecretKey};
@@ -226,6 +226,10 @@ impl MintLogic {
         self.store.is_nonce_spent(&nonce)
     }
 
+    pub fn is_blind_nonce_used(&self, blind_nonce: &BlindNonce) -> anyhow::Result<bool> {
+        self.store.is_blind_nonce_used(blind_nonce)
+    }
+
     /// Running (issued, redeemed) totals, outstanding supply is
     /// `issued - redeemed`. Since `issue` is unconditional, this number is
     /// exactly as meaningful as the operator's own issuance policy makes it.
@@ -246,4 +250,31 @@ pub enum SwapError {
         input_total: Amount,
         output_total: Amount,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mint_types::{DEFAULT_DENOMINATION_BASE, gen_denominations};
+
+    #[test]
+    fn blind_nonce_is_unused_until_issued() {
+        let dir = std::env::temp_dir().join(format!("mint-core-{}-blind-nonce", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = keygen::generate(&gen_denominations(
+            DEFAULT_DENOMINATION_BASE,
+            Amount::from_units(8),
+        ));
+        let logic = MintLogic::new(cfg, Store::open(&dir).unwrap());
+        let sk = SecretKey::new(&mut rand::thread_rng());
+        let output = MintOutput {
+            amount: Amount::from_units(4),
+            blind_nonce: BlindNonce(sk.public_key(&SECP256K1)),
+        };
+        assert!(!logic.is_blind_nonce_used(&output.blind_nonce).unwrap());
+        logic.issue(&output).unwrap();
+        assert!(logic.is_blind_nonce_used(&output.blind_nonce).unwrap());
+        drop(logic);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
