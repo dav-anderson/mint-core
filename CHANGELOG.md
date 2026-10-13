@@ -6,6 +6,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2]
+
+### Added
+- `mint-core`: `MintLogic::issue_with_key`, `verify_note_with_key` and `redeem_with_key`. They take the signing key from the caller instead of looking it up by amount, for mints whose key depends on more than the amount. `issue`, `verify_note`, `swap` and `melt` behave as before.
+
 ## [0.1.1]
 
 ### Added
@@ -21,6 +26,7 @@ First tagged release.
 - `mint-core`: `MintLogic` with issue, swap and melt, backed by a sled store.
 - `mint-server`: the Axum HTTP API (`/keys`, `/admin/issue`, `/swap`, `/melt`, `/check-state`, `/audit`) and the `mintd` binary.
 
-[Unreleased]: https://github.com/dav-anderson/mint-core/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/dav-anderson/mint-core/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/dav-anderson/mint-core/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/dav-anderson/mint-core/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/dav-anderson/mint-core/releases/tag/v0.1.0

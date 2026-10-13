@@ -46,12 +46,29 @@ impl MintLogic {
     /// denomination. Needs this mint's own secret key. Does **not** by itself
     /// prove the presenter is authorized to spend the note, see
     /// [`MintLogic::verify_spend_authorization`] and `mint-types::MintInput`.
+    ///
+    /// The key comes from the fixed key table, chosen by `input.amount`. A
+    /// mint with derived keys, such as ESP, calls
+    /// [`MintLogic::verify_note_with_key`] instead.
     pub fn verify_note(&self, input: &MintInput) -> Result<(), MintInputError> {
         let sk = self
             .sk
             .get(&input.amount)
             .ok_or(MintInputError::InvalidAmountTier(input.amount))?;
 
+        self.verify_note_with_key(sk, input)
+    }
+
+    /// Same as [`MintLogic::verify_note`], except the caller supplies the
+    /// secret key to check the signature against, instead of the mint looking
+    /// it up by amount in its fixed key table. See
+    /// [`MintLogic::issue_with_key`] for why a mint would derive its own keys.
+    /// The caller is responsible for deriving the right key for this note.
+    pub fn verify_note_with_key(
+        &self,
+        sk: &SecretKey,
+        input: &MintInput,
+    ) -> Result<(), MintInputError> {
         if !bdhke::verify_message(
             sk,
             input.note.signature,
@@ -84,7 +101,30 @@ impl MintLogic {
     /// Mark the note's nonce spent (erroring if it already was, this is
     /// the double-spend check) and add its amount to the redeemed total.
     fn redeem(&self, input: &MintInput, sighash: [u8; 32]) -> Result<(), MintInputError> {
-        self.verify_note(input)?;
+        let sk = self
+            .sk
+            .get(&input.amount)
+            .ok_or(MintInputError::InvalidAmountTier(input.amount))?;
+
+        self.redeem_with_key(sk, input, sighash)
+    }
+
+    /// Same as the internal redeem used by `swap` and `melt`, except the
+    /// caller supplies the secret key the note was signed with, instead of the
+    /// mint looking it up by amount in its fixed key table. It checks the
+    /// signature with that key, checks the spend authorization over `sighash`,
+    /// marks the nonce spent (the double-spend check) and adds the amount to
+    /// the redeemed total. See [`MintLogic::issue_with_key`] for why a mint
+    /// would derive its own keys. The caller is responsible for deriving the
+    /// right key and for any checks of its own, such as redeemable-after dates,
+    /// before calling this.
+    pub fn redeem_with_key(
+        &self,
+        sk: &SecretKey,
+        input: &MintInput,
+        sighash: [u8; 32],
+    ) -> Result<(), MintInputError> {
+        self.verify_note_with_key(sk, input)?;
         self.verify_spend_authorization(input, sighash)?;
 
         let newly_spent = self
@@ -106,12 +146,48 @@ impl MintLogic {
     /// **Unconditional**: this is the "unilateral, arbitrary issuance"
     /// primitive; every other entry point in this crate is either
     /// read-only or built out of this plus [`MintLogic::redeem`].
+    ///
+    /// This signs with the mint's fixed key table, which holds one secret key
+    /// per denomination and picks the key from `output.amount` alone. PSP and
+    /// FSP use this method, because every note of a given amount is signed by
+    /// the same key.
+    ///
+    /// It is not the only way to issue. A mint whose signing key depends on
+    /// more than the amount, such as ESP, where the key also depends on the
+    /// note's terms, cannot look its key up in a table. It calls
+    /// [`MintLogic::issue_with_key`] with the key it derived instead. This
+    /// method is that one with the key taken from the table.
     pub fn issue(&self, output: &MintOutput) -> Result<MintOutputOutcome, MintOutputError> {
         let sk = self
             .sk
             .get(&output.amount)
             .ok_or(MintOutputError::InvalidAmountTier(output.amount))?;
 
+        self.issue_with_key(sk, output)
+    }
+
+    /// Same as [`MintLogic::issue`], except the caller supplies the signing
+    /// key instead of the mint looking it up by amount in its fixed key table.
+    ///
+    /// It exists for mints whose signing key is not a function of the amount
+    /// alone. ESP derives a separate key for every combination of amount and
+    /// terms (the redeeming service and the redeemable-after date), so that a
+    /// note's terms are bound into its signature and cannot be edited later.
+    /// There are too many combinations to keep in a table, so the caller
+    /// derives the key and passes it here.
+    ///
+    /// The caller chooses the key and decides which amounts are allowed. This
+    /// method does not check the amount against the key table, and it cannot
+    /// tell whether `sk` is the right key for the output. Beyond that it does
+    /// exactly what `issue` does: it marks the blind nonce used, signs, and
+    /// adds the amount to the issued total.
+    ///
+    /// `swap` and `melt` still use the fixed key table only.
+    pub fn issue_with_key(
+        &self,
+        sk: &SecretKey,
+        output: &MintOutput,
+    ) -> Result<MintOutputOutcome, MintOutputError> {
         let newly_used = self
             .store
             .mark_blind_nonce_used(&output.blind_nonce)
@@ -274,6 +350,122 @@ mod tests {
         assert!(!logic.is_blind_nonce_used(&output.blind_nonce).unwrap());
         logic.issue(&output).unwrap();
         assert!(logic.is_blind_nonce_used(&output.blind_nonce).unwrap());
+        drop(logic);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn fresh_logic(name: &str) -> (MintLogic, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("mint-core-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = keygen::generate(&gen_denominations(
+            DEFAULT_DENOMINATION_BASE,
+            Amount::from_units(8),
+        ));
+        (MintLogic::new(cfg, Store::open(&dir).unwrap()), dir)
+    }
+
+    fn signed_input(
+        units: u64,
+        mint_pk: &PublicKey,
+        issue: impl FnOnce(&MintOutput) -> MintOutputOutcome,
+    ) -> (MintInput, [u8; 32]) {
+        let keypair = secp256k1::Keypair::new(&SECP256K1, &mut rand::thread_rng());
+        let nonce = Nonce(keypair.public_key());
+        let (blinded, r) = bdhke::blind_message(&nonce.as_hash_preimage(), None);
+        let output = MintOutput {
+            amount: Amount::from_units(units),
+            blind_nonce: BlindNonce(blinded),
+        };
+        let outcome = issue(&output);
+        let signature = bdhke::unblind_message(&outcome.0, &r, mint_pk);
+        let mut input = MintInput {
+            amount: output.amount,
+            note: mint_types::Note { nonce, signature },
+            spend_signature: secp256k1::schnorr::Signature::from_slice(&[0u8; 64]).unwrap(),
+        };
+        let sighash = melt_sighash(std::slice::from_ref(&input), b"test");
+        input.spend_signature = SECP256K1.sign_schnorr(&sighash, &keypair);
+        (input, sighash)
+    }
+
+    #[test]
+    fn issue_with_key_signs_with_the_supplied_key_and_skips_the_tier_table() {
+        let (logic, dir) = fresh_logic("issue-with-key");
+        let sk = SecretKey::new(&mut rand::thread_rng());
+        let (blinded, _) = bdhke::blind_message(b"x", None);
+        let output = MintOutput {
+            amount: Amount::from_units(3),
+            blind_nonce: BlindNonce(blinded),
+        };
+        assert_eq!(
+            logic.issue(&output),
+            Err(MintOutputError::InvalidAmountTier(Amount::from_units(3)))
+        );
+        let outcome = logic.issue_with_key(&sk, &output).unwrap();
+        assert_eq!(outcome.0, bdhke::sign_message(&sk, &output.blind_nonce.0));
+        assert_eq!(
+            logic.issue_with_key(&sk, &output),
+            Err(MintOutputError::BlindNonceAlreadyUsed)
+        );
+        assert_eq!(logic.audit_totals().unwrap().0, Amount::from_units(3));
+        drop(logic);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn redeem_with_key_checks_the_key_the_authorization_and_double_spend() {
+        let (logic, dir) = fresh_logic("redeem-with-key");
+        let sk = SecretKey::new(&mut rand::thread_rng());
+        let wrong = SecretKey::new(&mut rand::thread_rng());
+        let (input, sighash) = signed_input(3, &sk.public_key(&SECP256K1), |o| {
+            logic.issue_with_key(&sk, o).unwrap()
+        });
+
+        assert_eq!(
+            logic.verify_note(&input),
+            Err(MintInputError::InvalidAmountTier(Amount::from_units(3)))
+        );
+        assert_eq!(logic.verify_note_with_key(&sk, &input), Ok(()));
+        assert_eq!(
+            logic.verify_note_with_key(&wrong, &input),
+            Err(MintInputError::InvalidSignature)
+        );
+
+        assert_eq!(
+            logic.redeem_with_key(&wrong, &input, sighash),
+            Err(MintInputError::InvalidSignature)
+        );
+        assert_eq!(
+            logic.redeem_with_key(&sk, &input, [0u8; 32]),
+            Err(MintInputError::InvalidSpendAuthorization)
+        );
+        assert!(!logic.is_spent(input.note.nonce).unwrap());
+
+        assert_eq!(logic.redeem_with_key(&sk, &input, sighash), Ok(()));
+        assert!(logic.is_spent(input.note.nonce).unwrap());
+        assert_eq!(
+            logic.redeem_with_key(&sk, &input, sighash),
+            Err(MintInputError::SpentCoin)
+        );
+        assert_eq!(
+            logic.audit_totals().unwrap(),
+            (Amount::from_units(3), Amount::from_units(3))
+        );
+        drop(logic);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn table_methods_behave_as_before() {
+        let (logic, dir) = fresh_logic("table");
+        let pk = logic.public_keys()[&Amount::from_units(4)];
+        let (input, _) = signed_input(4, &pk, |o| logic.issue(o).unwrap());
+        assert_eq!(logic.verify_note(&input), Ok(()));
+        assert_eq!(logic.melt(&[input], b"test"), Ok(Amount::from_units(4)));
+        assert_eq!(
+            logic.audit_totals().unwrap(),
+            (Amount::from_units(4), Amount::from_units(4))
+        );
         drop(logic);
         std::fs::remove_dir_all(&dir).unwrap();
     }
