@@ -182,6 +182,15 @@ impl MintLogic {
     /// exactly what `issue` does: it marks the blind nonce used, signs, and
     /// adds the amount to the issued total.
     ///
+    /// The mark and the total are written in one sled transaction
+    /// ([`Store::claim_issue`]), before signing. A crash can no longer leave a
+    /// nonce used with its amount missing from the total. If the process stops
+    /// after that transaction and before the caller has the signature, a retry
+    /// gets `BlindNonceAlreadyUsed`: the output is already counted, so the
+    /// caller signs it again (signing is deterministic) and must not add it
+    /// to anything. Before this change (up to v0.1.2) a crash between the two
+    /// writes left the total short for good.
+    ///
     /// `swap` and `melt` still use the fixed key table only.
     pub fn issue_with_key(
         &self,
@@ -190,19 +199,16 @@ impl MintLogic {
     ) -> Result<MintOutputOutcome, MintOutputError> {
         let newly_used = self
             .store
-            .mark_blind_nonce_used(&output.blind_nonce)
+            .claim_issue(&output.blind_nonce, output.amount)
             .map_err(|e| MintOutputError::Internal(e.to_string()))?;
         if !newly_used {
             return Err(MintOutputError::BlindNonceAlreadyUsed);
         }
 
-        let blinded_signature = bdhke::sign_message(sk, &output.blind_nonce.0);
-
-        self.store
-            .add_issued(output.amount)
-            .map_err(|e| MintOutputError::Internal(e.to_string()))?;
-
-        Ok(MintOutputOutcome(blinded_signature))
+        Ok(MintOutputOutcome(bdhke::sign_message(
+            sk,
+            &output.blind_nonce.0,
+        )))
     }
 
     /// Redeem `inputs` and issue `outputs`, enforcing that this is a transfer and
@@ -408,6 +414,53 @@ mod tests {
             Err(MintOutputError::BlindNonceAlreadyUsed)
         );
         assert_eq!(logic.audit_totals().unwrap().0, Amount::from_units(3));
+        drop(logic);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_crash_between_the_two_writes_of_an_issue_leaves_the_total_right() {
+        let (logic, dir) = fresh_logic("issue-crash");
+        let sk = SecretKey::new(&mut rand::thread_rng());
+        let (blinded, _) = bdhke::blind_message(b"crash", None);
+        let output = MintOutput {
+            amount: Amount::from_units(3),
+            blind_nonce: BlindNonce(blinded),
+        };
+
+        // a failure between the nonce mark and the total: neither is written
+        crate::store::failpoint::ABORT_BETWEEN_THE_WRITES.with(|f| f.set(true));
+        assert!(matches!(
+            logic.issue_with_key(&sk, &output),
+            Err(MintOutputError::Internal(_))
+        ));
+        crate::store::failpoint::ABORT_BETWEEN_THE_WRITES.with(|f| f.set(false));
+        assert!(!logic.is_blind_nonce_used(&output.blind_nonce).unwrap());
+        assert_eq!(logic.audit_totals().unwrap().0, Amount::ZERO);
+
+        // the retry issues it and counts it once
+        let outcome = logic.issue_with_key(&sk, &output).unwrap();
+        assert_eq!(logic.audit_totals().unwrap().0, Amount::from_units(3));
+
+        // a stop after the transaction and before the caller has the answer:
+        // restart, and the retry is told the nonce is used, with the total
+        // already right. The caller signs again (deterministic) and adds nothing.
+        drop(logic);
+        let cfg = keygen::generate(&gen_denominations(
+            DEFAULT_DENOMINATION_BASE,
+            Amount::from_units(8),
+        ));
+        let logic = MintLogic::new(cfg, Store::open(&dir).unwrap());
+        assert_eq!(
+            logic.issue_with_key(&sk, &output),
+            Err(MintOutputError::BlindNonceAlreadyUsed)
+        );
+        assert_eq!(logic.audit_totals().unwrap().0, Amount::from_units(3));
+        assert_eq!(
+            outcome.0,
+            bdhke::sign_message(&sk, &output.blind_nonce.0),
+            "signing again gives the same signature"
+        );
         drop(logic);
         std::fs::remove_dir_all(&dir).unwrap();
     }

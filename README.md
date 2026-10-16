@@ -47,6 +47,8 @@ The `/audit` endpoint's `issued`/`redeemed`/`outstanding` totals are
 bookkeeping, not a solvency proof: nothing here is independently verifiable
 by a party who isn't the administrator/mint operator.
 
+**The issued total and the blind-nonce mark are one write** (since v0.1.3). `issue` and `issue_with_key` mark the output's blind nonce used and add its amount to the issued total in a single sled transaction (`Store::claim_issue`), then sign. Before, they were two writes, and a crash between them left the total short by that output for good (a retry sees the nonce used and treats the output as issued). The fix stops new drift. It does not repair a total that is already short. sled is a stand-in for the storage the mints will have in the AIR, and that storage must keep the same rule: the nonce mark and the total update are one atomic step.
+
 ## Spend authorization
 
 A note's mint signature proves it's genuine; it says nothing about who's
