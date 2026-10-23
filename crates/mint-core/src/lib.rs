@@ -6,6 +6,7 @@
 //! here, server-side, where the key already lives.
 
 pub mod keygen;
+pub mod state;
 pub mod store;
 
 use std::collections::BTreeMap;
@@ -271,7 +272,9 @@ impl MintLogic {
     /// spent, no duplicates) before any is marked spent.
     pub fn melt(&self, inputs: &[MintInput], memo: &[u8]) -> Result<Amount, MintInputError> {
         if inputs.is_empty() {
-            return Err(MintInputError::Internal("melt requires at least one input".into()));
+            return Err(MintInputError::Internal(
+                "melt requires at least one input".into(),
+            ));
         }
 
         let sighash = melt_sighash(inputs, memo);
@@ -341,7 +344,8 @@ mod tests {
 
     #[test]
     fn blind_nonce_is_unused_until_issued() {
-        let dir = std::env::temp_dir().join(format!("mint-core-{}-blind-nonce", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("mint-core-{}-blind-nonce", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let cfg = keygen::generate(&gen_denominations(
             DEFAULT_DENOMINATION_BASE,
@@ -351,7 +355,7 @@ mod tests {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let output = MintOutput {
             amount: Amount::from_units(4),
-            blind_nonce: BlindNonce(sk.public_key(&SECP256K1)),
+            blind_nonce: BlindNonce(sk.public_key(SECP256K1)),
         };
         assert!(!logic.is_blind_nonce_used(&output.blind_nonce).unwrap());
         logic.issue(&output).unwrap();
@@ -375,7 +379,7 @@ mod tests {
         mint_pk: &PublicKey,
         issue: impl FnOnce(&MintOutput) -> MintOutputOutcome,
     ) -> (MintInput, [u8; 32]) {
-        let keypair = secp256k1::Keypair::new(&SECP256K1, &mut rand::thread_rng());
+        let keypair = secp256k1::Keypair::new(SECP256K1, &mut rand::thread_rng());
         let nonce = Nonce(keypair.public_key());
         let (blinded, r) = bdhke::blind_message(&nonce.as_hash_preimage(), None);
         let output = MintOutput {
@@ -470,7 +474,7 @@ mod tests {
         let (logic, dir) = fresh_logic("redeem-with-key");
         let sk = SecretKey::new(&mut rand::thread_rng());
         let wrong = SecretKey::new(&mut rand::thread_rng());
-        let (input, sighash) = signed_input(3, &sk.public_key(&SECP256K1), |o| {
+        let (input, sighash) = signed_input(3, &sk.public_key(SECP256K1), |o| {
             logic.issue_with_key(&sk, o).unwrap()
         });
 

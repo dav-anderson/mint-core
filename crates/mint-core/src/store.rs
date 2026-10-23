@@ -7,12 +7,12 @@
 //! this crate needs no C/C++ toolchain to build.
 //!
 //! `MintLogic`'s callers are expected to serialize
-//! mutating calls (`issue`/`redeem`/`swap`/`melt`), see `server::AppState`, which
+//! mutating calls (`issue`/`redeem`/`swap`/`melt`), see [`crate::state::AppState`], which
 //! holds `MintLogic` behind a single `std::sync::Mutex`. That's what makes
 //! the read-then-write sequences below (check a nonce isn't spent, then
 //! mark it) safe: there's exactly one in-process writer at a time. A
 //! multi-process or multi-writer deployment would need real transactions
-//! here; a single `mintd` process does not.
+//! here; a single mint process does not.
 
 use std::fmt;
 use std::path::Path;
@@ -221,7 +221,7 @@ mod tests {
     }
 
     fn blind_nonce() -> BlindNonce {
-        BlindNonce(SecretKey::new(&mut rand::thread_rng()).public_key(&SECP256K1))
+        BlindNonce(SecretKey::new(&mut rand::thread_rng()).public_key(SECP256K1))
     }
 
     #[test]
@@ -299,7 +299,11 @@ mod tests {
         assert!(store.is_blind_nonce_used(&old).unwrap());
         assert_eq!(store.issued_total().unwrap(), Amount::from_units(6));
         assert!(!store.claim_issue(&old, Amount::from_units(6)).unwrap());
-        assert!(store.claim_issue(&blind_nonce(), Amount::from_units(1)).unwrap());
+        assert!(
+            store
+                .claim_issue(&blind_nonce(), Amount::from_units(1))
+                .unwrap()
+        );
         assert_eq!(store.issued_total().unwrap(), Amount::from_units(7));
         drop(store);
         std::fs::remove_dir_all(&d).unwrap();
@@ -309,7 +313,10 @@ mod tests {
     fn a_corrupt_total_or_an_overflow_is_an_error_and_writes_nothing() {
         let d = dir("bad-total");
         let store = Store::open(&d).unwrap();
-        store.db.insert(&ISSUED_TOTAL_KEY[..], &[1u8, 2][..]).unwrap();
+        store
+            .db
+            .insert(&ISSUED_TOTAL_KEY[..], &[1u8, 2][..])
+            .unwrap();
         let b = blind_nonce();
         let err = store.claim_issue(&b, Amount::from_units(1)).unwrap_err();
         assert!(err.to_string().contains("corrupt total"), "{err}");

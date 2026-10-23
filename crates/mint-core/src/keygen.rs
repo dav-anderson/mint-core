@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use mint_types::{Amount, MintConfig};
-use secp256k1::{SecretKey, SECP256K1};
+use secp256k1::{SECP256K1, SecretKey};
 
 /// Generate a fresh keypair set, one per denomination tier.
 pub fn generate(denominations: &[Amount]) -> MintConfig {
@@ -21,6 +21,6 @@ pub fn generate(denominations: &[Amount]) -> MintConfig {
 pub fn public_keys(cfg: &MintConfig) -> BTreeMap<Amount, secp256k1::PublicKey> {
     cfg.sk
         .iter()
-        .map(|(&amount, sk)| (amount, sk.public_key(&SECP256K1)))
+        .map(|(&amount, sk)| (amount, sk.public_key(SECP256K1)))
         .collect()
 }

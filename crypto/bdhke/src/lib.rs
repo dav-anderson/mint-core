@@ -38,7 +38,7 @@
 //! this function reproduces the published test vectors. This does **not**
 //! make the mint wire-compatible with Cashu.
 
-use secp256k1::{Parity, PublicKey, Scalar, SecretKey, XOnlyPublicKey, SECP256K1};
+use secp256k1::{Parity, PublicKey, SECP256K1, Scalar, SecretKey, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
 
 const DOMAIN_SEPARATOR: &[u8] = b"Secp256k1_HashToCurve_Cashu_";
@@ -76,9 +76,9 @@ pub fn hash_to_curve(message: &[u8]) -> PublicKey {
 pub fn blind_message(secret: &[u8], blinding_factor: Option<SecretKey>) -> (PublicKey, SecretKey) {
     let y = hash_to_curve(secret);
     let r = blinding_factor.unwrap_or_else(|| SecretKey::new(&mut rand::thread_rng()));
-    let b = y
-        .combine(&r.public_key(&SECP256K1))
-        .expect("sum of two valid curve points is a valid curve point except with negligible probability");
+    let b = y.combine(&r.public_key(SECP256K1)).expect(
+        "sum of two valid curve points is a valid curve point except with negligible probability",
+    );
     (b, r)
 }
 
@@ -86,7 +86,7 @@ pub fn blind_message(secret: &[u8], blinding_factor: Option<SecretKey>) -> (Publ
 /// private key `k` for one denomination. Nothing here checks backing.
 pub fn sign_message(k: &SecretKey, blinded_message: &PublicKey) -> PublicKey {
     blinded_message
-        .mul_tweak(&SECP256K1, &Scalar::from(*k))
+        .mul_tweak(SECP256K1, &Scalar::from(*k))
         .expect("scalar multiplication of a valid point by a nonzero tweak stays on the curve")
 }
 
@@ -101,12 +101,12 @@ pub fn unblind_message(
     mint_pubkey: &PublicKey,
 ) -> PublicKey {
     let r_times_k = mint_pubkey
-        .mul_tweak(&SECP256K1, &Scalar::from(*r))
+        .mul_tweak(SECP256K1, &Scalar::from(*r))
         .expect("scalar multiplication stays on the curve");
-    let neg_r_times_k = r_times_k.negate(&SECP256K1);
-    blinded_signature
-        .combine(&neg_r_times_k)
-        .expect("sum of two valid curve points is a valid curve point except with negligible probability")
+    let neg_r_times_k = r_times_k.negate(SECP256K1);
+    blinded_signature.combine(&neg_r_times_k).expect(
+        "sum of two valid curve points is a valid curve point except with negligible probability",
+    )
 }
 
 /// Confirm `unblinded_message` is a valid signature on `msg` under the
@@ -114,7 +114,7 @@ pub fn unblind_message(
 pub fn verify_message(k: &SecretKey, unblinded_message: PublicKey, msg: &[u8]) -> bool {
     let y = hash_to_curve(msg);
     let expected = y
-        .mul_tweak(&SECP256K1, &Scalar::from(*k))
+        .mul_tweak(SECP256K1, &Scalar::from(*k))
         .expect("scalar multiplication stays on the curve");
     unblinded_message == expected
 }
@@ -167,7 +167,8 @@ mod tests {
     #[test]
     fn blind_message_matches_nut00_vector() {
         let message =
-            hex::decode("d341ee4871f1f889041e63cf0d3823c713eea6aff01e80f1719f08f9e5be98f6").unwrap();
+            hex::decode("d341ee4871f1f889041e63cf0d3823c713eea6aff01e80f1719f08f9e5be98f6")
+                .unwrap();
         let secret = sk("99fce58439fc37412ab3468b73db0569322588f62fb3a49182d67e23d877824a");
 
         let (b, r) = blind_message(&message, Some(secret));
@@ -196,7 +197,7 @@ mod tests {
         let secret = b"a note only the holder should be able to construct a valid signature for";
 
         let mint_k = SecretKey::new(&mut rand::thread_rng());
-        let mint_pubkey = mint_k.public_key(&SECP256K1);
+        let mint_pubkey = mint_k.public_key(SECP256K1);
 
         let (blinded, r) = blind_message(secret, None);
         let blinded_signature = sign_message(&mint_k, &blinded);
@@ -213,7 +214,7 @@ mod tests {
 
         let (blinded, r) = blind_message(secret, None);
         let blinded_signature = sign_message(&mint_k, &blinded);
-        let signature = unblind_message(&blinded_signature, &r, &mint_k.public_key(&SECP256K1));
+        let signature = unblind_message(&blinded_signature, &r, &mint_k.public_key(SECP256K1));
 
         assert!(!verify_message(&wrong_k, signature, secret));
     }

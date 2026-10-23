@@ -17,9 +17,7 @@
 use std::time::Instant;
 
 use mint_core::{MintLogic, keygen, store::Store};
-use mint_types::{
-    Amount, BlindNonce, DEFAULT_DENOMINATION_BASE, MintOutput, gen_denominations,
-};
+use mint_types::{Amount, BlindNonce, DEFAULT_DENOMINATION_BASE, MintOutput, gen_denominations};
 use secp256k1::{SECP256K1, SecretKey};
 
 const ISSUES: usize = 20_000;
@@ -46,7 +44,7 @@ fn issue_with_key_speed() {
             .map(|_| MintOutput {
                 amount: Amount::from_units(4),
                 blind_nonce: BlindNonce(
-                    SecretKey::new(&mut rand::thread_rng()).public_key(&SECP256K1),
+                    SecretKey::new(&mut rand::thread_rng()).public_key(SECP256K1),
                 ),
             })
             .collect();

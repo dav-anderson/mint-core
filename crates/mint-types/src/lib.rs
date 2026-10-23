@@ -60,7 +60,6 @@ impl AddAssign for Amount {
 /// A verifiable, one-time-use IOU from the mint: a user-generated nonce and
 /// the mint's BDHKE signature over it (computed while the nonce was in
 /// [`BlindNonce`] form, so the mint never saw the nonce itself).
-
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub struct Note {
     pub nonce: Nonce,
@@ -113,7 +112,7 @@ impl fmt::Debug for Nonce {
 
 /// [`Nonce`] blinded by the user's blinding key (`B_ = Y + rG` in BDHKE
 /// terms).
-
+///
 /// Blinding is what prevents the mint from linking a note being redeemed as
 /// an *input* to the note it issued as an *output* when it was created.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
@@ -126,18 +125,18 @@ impl fmt::Debug for BlindNonce {
 }
 
 /// A request to spend an existing, previously-issued note.
-
+///
 /// `spend_signature` is not optional and not a formality. `note` by itself
 /// is public-ish data anyone who has *seen* it (a relay, a logging
 /// mistake, a network observer on an unencrypted hop) could otherwise submit
 /// it as an input paired with outputs *of their own choosing*, stealing the
 /// value before its rightful holder spends it. The mint's blind signature
 /// inside `note` proves the note is genuine (the mint is the only
-/// party that can check it); it says nothing about who is authorized to 
-/// spend it right now, to these particular outputs. `spend_signature` closes 
+/// party that can check it); it says nothing about who is authorized to
+/// spend it right now, to these particular outputs. `spend_signature` closes
 /// that gap: a Schnorr signature, by the note's own nonce keypair (`note.spend_key()`),
 /// over [`transaction_sighash`] of the full swap request this input is part of.
-
+///
 /// Verified in `mint-core::MintLogic::verify_spend_authorization`.
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub struct MintInput {
@@ -168,7 +167,7 @@ mod hex_signature {
 /// transaction, not just "I own this note" in isolation, is what stops a
 /// note's owner-proof from one request being replayed against a different
 /// set of outputs.
-
+///
 /// Returns the raw 32-byte digest, not a `secp256k1::Message`, this
 /// project's Schnorr signing/verification (`SECP256K1.sign_schnorr`/
 /// `verify_schnorr`) takes `&[u8]` directly rather than the `Message`
@@ -257,7 +256,7 @@ pub fn gen_denominations(base: u16, max: Amount) -> Vec<Amount> {
 }
 
 /// This mint's keys and policy, for one denomination tier.
-
+///
 /// `sk` holds one plain secp256k1 secret key per denomination.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MintConfig {

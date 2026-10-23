@@ -6,6 +6,18 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0]
+
+### Removed
+- **The `server` crate (`mint-server`, the `mintd` binary and `examples/smoke_test.rs`).** It was the standalone mint this workspace started as; nothing runs it. The mint repos used only its `AppState` and some JSON types from it, and it pulled `axum`, `tokio`, `tracing`, `tracing-subscriber` and `subtle` into this workspace. The workspace dependencies only it used are gone too (`axum`, `tokio`, `tracing`, `tracing-subscriber`, `serde_json`). Breaking: `mint_server::state::AppState` and `mint_server::api::*` no longer exist. `KeysResponse`, `CheckStateRequest` and `CheckStateResponse` are in `sp_wire::keys`, `MeltRequest` and `MeltResponse` in `sp_wire::melt`, and `AuditResponse` was only ever `{issued, redeemed, outstanding}`, which each mint builds itself.
+- `AppState::admin_token` (only `mintd`'s `/admin/issue` read it) and `AppState::init` with `Settings` and the keyfile loading, which are each mint's own startup.
+
+### Added
+- `mint_core::state::AppState { logic: Mutex<MintLogic> }`, moved from `mint-server` with its doc comment on the single-writer rule.
+
+### Changed
+- `cargo fmt` (edition 2024) and `cargo clippy -D warnings` are clean across the workspace: import order and long lines in `keygen.rs`, `lib.rs`, `store.rs`, `tests/issue_speed.rs`, `mint-types` and `bdhke`; doc comments in `mint-types` no longer have a blank line after them; `&SECP256K1` is `SECP256K1` where a reference is expected. No behaviour change.
+- `rust-version` 1.85 to 1.93. README: the `server` row, the HTTP API, wire format, running and smoke-test sections are gone.
 ## [0.1.3]
 
 ### Fixed
@@ -39,7 +51,8 @@ First tagged release.
 - `mint-core`: `MintLogic` with issue, swap and melt, backed by a sled store.
 - `mint-server`: the Axum HTTP API (`/keys`, `/admin/issue`, `/swap`, `/melt`, `/check-state`, `/audit`) and the `mintd` binary.
 
-[Unreleased]: https://github.com/dav-anderson/mint-core/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/dav-anderson/mint-core/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/dav-anderson/mint-core/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/dav-anderson/mint-core/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/dav-anderson/mint-core/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/dav-anderson/mint-core/compare/v0.1.0...v0.1.1
