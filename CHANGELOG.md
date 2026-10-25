@@ -6,6 +6,25 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-25
+
+Breaking: `Amount` loses `Add` and `AddAssign`, the totals are `u128` and stored differently, and four `Store` functions are gone. A database written by v0.2.0 or earlier still opens with `Store::open`, but every claim (`claim_issue`, `claim_redeem`) and every read of a total (`audit_totals`) on it is an error and writes nothing (clean break; no reader or migration for the old totals). The mints (esp-mint 0.9.0, psp-mint 0.7.0) read the totals at start, so they refuse to start on such a database.
+
+### Fixed
+- **A generation stopped issuing at `u64::MAX` units (ROADMAP item 31, P1-02).** The issued and redeemed totals were `u64`, stored as 8 bytes; an issue that would pass `u64::MAX` (about $18.4M at 10^-12 USD per unit) was refused with "the issued total would overflow", and so was every later issue in that generation. The totals are now `u128`, stored as 16 bytes big-endian, with checked adds. A stored total of any other length is an error (`corrupt total: expected 16 bytes, got N`) and writes nothing, as is an add that would overflow `u128`. `Store::issued_total`, `Store::redeemed_total` and `MintLogic::audit_totals` return `u128`.
+- **A redeem was two writes (P1-03).** `redeem_with_key` marked the nonce spent, then added to the redeemed total in a separate write; a crash between them left the note spent and the total short for good. The new `Store::claim_redeem(nonce, amount)` does both in one sled transaction, as `claim_issue` has done for the issue side since v0.1.3: it reads the spent mark and the total, answers `false` (`SpentCoin`) if the note is spent, errors on a corrupt or overflowing total, and otherwise writes both. Only those reads and writes are inside it. `redeem_with_key`, `swap` and `melt` use it. The test failpoint between the two writes now serves both claims.
+- **Amount sums could wrap.** `Amount` had unchecked `+` and `+=`: in a release build `swap` accepted outputs `[2^63, 2^63, 1]` (which wrap to 1) against a one-unit input. `swap` and `melt` sum in `u128`, and `melt` refuses a total that does not fit an `Amount` before it redeems anything. `SwapError::Unbalanced` carries `u128` totals.
+
+### Removed
+- `Add` and `AddAssign` for `Amount` (mint-types). Use `Amount::checked_add` (new, returns `Option<Amount>`) or add `units` in `u128`.
+- `Store::add_issued`, `Store::add_redeemed`, `Store::mark_nonce_spent` and `Store::mark_blind_nonce_used`: after `claim_redeem`, none has a caller in this crate or in any mint repo. The test `a_database_written_the_old_way_opens_and_keeps_counting` went with them.
+
+### Changed
+- `MintLogic::audit_totals` returns `(u128, u128)`.
+
+### Tests
+- Added: the `u64::MAX` boundary and one unit more (`a_generation_issues_up_to_u64_max_and_one_unit_more`), totals past `u64::MAX` that are 16 bytes and read back after a restart, a crash between the two writes of a redeem (`a_crash_between_the_two_writes_of_a_redeem_leaves_the_note_unspent_and_the_total_right`). `a_corrupt_total_or_an_overflow_is_an_error_and_writes_nothing` became `a_total_of_the_old_8_byte_format_or_an_overflow_is_an_error_and_writes_nothing`, for both totals, with the overflow at `u128::MAX`.
+
 ## [0.2.0]
 
 ### Removed

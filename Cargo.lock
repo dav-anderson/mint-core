@@ -16,7 +16,7 @@ checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
 name = "bdhke"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "hex",
  "rand",
@@ -252,7 +252,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "mint-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "bdhke",
@@ -265,7 +265,7 @@ dependencies = [
 
 [[package]]
 name = "mint-types"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "hex",
  "secp256k1",

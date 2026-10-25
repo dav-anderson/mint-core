@@ -31,9 +31,18 @@ checks `input_total >= output_total` before issuing anything (see
 server and no administrator route: a mint repo that exposes `issue()` to anyone
 has made itself a mint anyone can print from.
 
-The `issued`/`redeemed` totals (`MintLogic::audit_totals`) are
-bookkeeping, not a solvency proof: nothing here is independently verifiable
+The `issued`/`redeemed` totals (`MintLogic::audit_totals`) are `u128`, stored as
+16 bytes big-endian (since v0.3.0; they were `u64`, and a generation stopped
+issuing when its issued total reached `u64::MAX`, about 1.8e19 units). Every add
+is checked: a total that would overflow is an error and writes nothing. A stored
+total of any other length is an error too, and there is no reader for the
+8-byte totals of v0.2.0 and earlier: such a database still opens, but every
+claim and every read of a total on it is an error and writes nothing (the mints
+read the totals at start, so they refuse to start on it). The totals
+are bookkeeping, not a solvency proof: nothing here is independently verifiable
 by a party who isn't the mint operator.
+
+**The redeemed total and the spent mark are one write** (since v0.3.0). `redeem_with_key` (and so `swap` and `melt`) marks the note's nonce spent and adds its amount to the redeemed total in a single sled transaction (`Store::claim_redeem`), the same shape as the issue side below. Before, they were two writes, and a crash between them left the note spent and the redeemed total short for good, so the outstanding supply was overstated. A second redeem of a spent note is `SpentCoin` and adds nothing.
 
 **The issued total and the blind-nonce mark are one write** (since v0.1.3). `issue` and `issue_with_key` mark the output's blind nonce used and add its amount to the issued total in a single sled transaction (`Store::claim_issue`), then sign. Before, they were two writes, and a crash between them left the total short by that output for good (a retry sees the nonce used and treats the output as issued). The fix stops new drift. It does not repair a total that is already short. sled is a stand-in for the storage the mints will have in the AIR, and that storage must keep the same rule: the nonce mark and the total update are one atomic step.
 
@@ -120,7 +129,7 @@ fairness guarantee across waiters; concurrent requests pile up as blocked
 tasks and get serviced one at a time, adding latency but not getting
 dropped. The one case that legitimately fails is two concurrent
 redemptions of the same nonce: the second to acquire the lock sees
-`mark_nonce_spent` return `false` and gets `SpentCoin`. That is correct
+`claim_redeem` return `false` and gets `SpentCoin`. That is correct
 behavior, not a symptom of contention.
 
 If this ever needs to scale past single-operator traffic, the paths worth
@@ -153,5 +162,5 @@ This runs the `bdhke` test vectors (borrowed from Cashu's NUT-00 spec). The othe
 Semantic Versioning. All three crates share one version, set in the root `Cargo.toml` and recorded in `CHANGELOG.md`. Releases are git tags named `vMAJOR.MINOR.PATCH`. Breaking means a change to the on-disk store or keyfile format, or the public Rust API. Before 1.0, a minor bump may break and a patch bump will not. The mint repos should depend on a tag:
 
 ```toml
-mint-core = { git = "https://github.com/dav-anderson/mint-core", tag = "v0.2.0" }
+mint-core = { git = "https://github.com/dav-anderson/mint-core", tag = "v0.3.0" }
 ```

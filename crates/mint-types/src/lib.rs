@@ -10,7 +10,6 @@
 //! happens only when they try to spend it.
 
 use std::fmt;
-use std::ops::{Add, AddAssign};
 
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
@@ -36,24 +35,20 @@ impl Amount {
     pub const fn from_units(units: u64) -> Self {
         Amount { units }
     }
+
+    /// The sum, or `None` if it does not fit in a `u64`. `Amount` has no `+`:
+    /// a sum of amounts is either checked here or made in `u128`.
+    pub const fn checked_add(self, rhs: Amount) -> Option<Amount> {
+        match self.units.checked_add(rhs.units) {
+            Some(units) => Some(Amount { units }),
+            None => None,
+        }
+    }
 }
 
 impl fmt::Display for Amount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.units)
-    }
-}
-
-impl Add for Amount {
-    type Output = Amount;
-    fn add(self, rhs: Amount) -> Amount {
-        Amount::from_units(self.units + rhs.units)
-    }
-}
-
-impl AddAssign for Amount {
-    fn add_assign(&mut self, rhs: Amount) {
-        self.units += rhs.units;
     }
 }
 

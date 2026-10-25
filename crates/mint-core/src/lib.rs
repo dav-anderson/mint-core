@@ -100,7 +100,8 @@ impl MintLogic {
     }
 
     /// Mark the note's nonce spent (erroring if it already was, this is
-    /// the double-spend check) and add its amount to the redeemed total.
+    /// the double-spend check) and add its amount to the redeemed total, in one
+    /// step ([`Store::claim_redeem`]).
     fn redeem(&self, input: &MintInput, sighash: [u8; 32]) -> Result<(), MintInputError> {
         let sk = self
             .sk
@@ -115,7 +116,10 @@ impl MintLogic {
     /// mint looking it up by amount in its fixed key table. It checks the
     /// signature with that key, checks the spend authorization over `sighash`,
     /// marks the nonce spent (the double-spend check) and adds the amount to
-    /// the redeemed total. See [`MintLogic::issue_with_key`] for why a mint
+    /// the redeemed total, the two in one sled transaction
+    /// ([`Store::claim_redeem`]): a crash cannot leave the note spent and the
+    /// total short, and a redeemed total that would overflow `u128` is an error
+    /// with nothing written. See [`MintLogic::issue_with_key`] for why a mint
     /// would derive its own keys. The caller is responsible for deriving the
     /// right key and for any checks of its own, such as redeemable-after dates,
     /// before calling this.
@@ -130,15 +134,11 @@ impl MintLogic {
 
         let newly_spent = self
             .store
-            .mark_nonce_spent(&input.note.nonce)
+            .claim_redeem(&input.note.nonce, input.amount)
             .map_err(|e| MintInputError::Internal(e.to_string()))?;
         if !newly_spent {
             return Err(MintInputError::SpentCoin);
         }
-
-        self.store
-            .add_redeemed(input.amount)
-            .map_err(|e| MintInputError::Internal(e.to_string()))?;
 
         Ok(())
     }
@@ -230,22 +230,24 @@ impl MintLogic {
         // stops a note from being stolen in transit.
         let sighash = transaction_sighash(inputs, outputs);
 
-        let mut input_total = Amount::ZERO;
+        // The sums are u128. A slice has fewer than 2^64 items of at most
+        // 2^64 - 1 units each, so they cannot overflow.
+        let mut input_total: u128 = 0;
         for input in inputs {
             self.verify_note(input).map_err(SwapError::Input)?;
             self.verify_spend_authorization(input, sighash)
                 .map_err(SwapError::Input)?;
-            input_total += input.amount;
+            input_total += u128::from(input.amount.units);
         }
 
-        let mut output_total = Amount::ZERO;
+        let mut output_total: u128 = 0;
         for output in outputs {
             if !self.sk.contains_key(&output.amount) {
                 return Err(SwapError::Output(MintOutputError::InvalidAmountTier(
                     output.amount,
                 )));
             }
-            output_total += output.amount;
+            output_total += u128::from(output.amount.units);
         }
 
         if input_total < output_total {
@@ -280,7 +282,7 @@ impl MintLogic {
         let sighash = melt_sighash(inputs, memo);
 
         let mut seen = std::collections::HashSet::new();
-        let mut total = Amount::ZERO;
+        let mut total: u128 = 0;
         for input in inputs {
             self.verify_note(input)?;
             self.verify_spend_authorization(input, sighash)?;
@@ -294,14 +296,20 @@ impl MintLogic {
             if spent {
                 return Err(MintInputError::SpentCoin);
             }
-            total += input.amount;
+            total += u128::from(input.amount.units);
         }
+
+        // The answer is an `Amount`. A total that does not fit one is refused
+        // before anything is redeemed.
+        let burned = u64::try_from(total).map_err(|_| {
+            MintInputError::Internal("the total of the melt does not fit an amount".into())
+        })?;
 
         for input in inputs {
             self.redeem(input, sighash)?;
         }
 
-        Ok(total)
+        Ok(Amount::from_units(burned))
     }
 
     /// Has this nonce been spent? For a `/check-state`-style endpoint so
@@ -315,11 +323,12 @@ impl MintLogic {
         self.store.is_blind_nonce_used(blind_nonce)
     }
 
-    /// Running (issued, redeemed) totals, outstanding supply is
+    /// Running (issued, redeemed) totals in units, each a `u128` so that a
+    /// generation never stops issuing at `u64::MAX`; outstanding supply is
     /// `issued - redeemed`. Since `issue` is unconditional, this number is
     /// exactly as meaningful as the operator's own issuance policy makes it.
     /// It's internal bookkeeping.
-    pub fn audit_totals(&self) -> anyhow::Result<(Amount, Amount)> {
+    pub fn audit_totals(&self) -> anyhow::Result<(u128, u128)> {
         Ok((self.store.issued_total()?, self.store.redeemed_total()?))
     }
 }
@@ -332,8 +341,8 @@ pub enum SwapError {
     Output(MintOutputError),
     #[error("inputs ({input_total}) do not cover outputs ({output_total})")]
     Unbalanced {
-        input_total: Amount,
-        output_total: Amount,
+        input_total: u128,
+        output_total: u128,
     },
 }
 
@@ -417,7 +426,7 @@ mod tests {
             logic.issue_with_key(&sk, &output),
             Err(MintOutputError::BlindNonceAlreadyUsed)
         );
-        assert_eq!(logic.audit_totals().unwrap().0, Amount::from_units(3));
+        assert_eq!(logic.audit_totals().unwrap().0, 3);
         drop(logic);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -440,11 +449,11 @@ mod tests {
         ));
         crate::store::failpoint::ABORT_BETWEEN_THE_WRITES.with(|f| f.set(false));
         assert!(!logic.is_blind_nonce_used(&output.blind_nonce).unwrap());
-        assert_eq!(logic.audit_totals().unwrap().0, Amount::ZERO);
+        assert_eq!(logic.audit_totals().unwrap().0, 0);
 
         // the retry issues it and counts it once
         let outcome = logic.issue_with_key(&sk, &output).unwrap();
-        assert_eq!(logic.audit_totals().unwrap().0, Amount::from_units(3));
+        assert_eq!(logic.audit_totals().unwrap().0, 3);
 
         // a stop after the transaction and before the caller has the answer:
         // restart, and the retry is told the nonce is used, with the total
@@ -459,12 +468,79 @@ mod tests {
             logic.issue_with_key(&sk, &output),
             Err(MintOutputError::BlindNonceAlreadyUsed)
         );
-        assert_eq!(logic.audit_totals().unwrap().0, Amount::from_units(3));
+        assert_eq!(logic.audit_totals().unwrap().0, 3);
         assert_eq!(
             outcome.0,
             bdhke::sign_message(&sk, &output.blind_nonce.0),
             "signing again gives the same signature"
         );
+        drop(logic);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The generation's logic opened again on the same folder.
+    fn reopened(dir: &std::path::Path) -> MintLogic {
+        let cfg = keygen::generate(&gen_denominations(
+            DEFAULT_DENOMINATION_BASE,
+            Amount::from_units(8),
+        ));
+        MintLogic::new(cfg, Store::open(dir).unwrap())
+    }
+
+    fn output(units: u64) -> MintOutput {
+        MintOutput {
+            amount: Amount::from_units(units),
+            blind_nonce: BlindNonce(SecretKey::new(&mut rand::thread_rng()).public_key(SECP256K1)),
+        }
+    }
+
+    #[test]
+    fn a_generation_issues_up_to_u64_max_and_one_unit_more() {
+        // Fails with u64 totals (before 0.3.0): the second issue is refused with
+        // "the issued total would overflow" and every later one fails the same way.
+        let (logic, dir) = fresh_logic("u64-boundary");
+        let sk = SecretKey::new(&mut rand::thread_rng());
+        logic.issue_with_key(&sk, &output(u64::MAX)).unwrap();
+        assert_eq!(logic.audit_totals().unwrap().0, 18_446_744_073_709_551_615);
+        logic.issue_with_key(&sk, &output(1)).unwrap();
+        assert_eq!(logic.audit_totals().unwrap().0, 18_446_744_073_709_551_616);
+        logic.issue_with_key(&sk, &output(u64::MAX)).unwrap();
+        assert_eq!(logic.audit_totals().unwrap().0, 36_893_488_147_419_103_231);
+        drop(logic);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_crash_between_the_two_writes_of_a_redeem_leaves_the_note_unspent_and_the_total_right() {
+        // Fails without `claim_redeem` (before 0.3.0): the note was marked spent
+        // in one write and counted in another, so the crash left it spent and
+        // the redeemed total short, for good.
+        let (logic, dir) = fresh_logic("redeem-crash");
+        let sk = SecretKey::new(&mut rand::thread_rng());
+        let (input, sighash) = signed_input(3, &sk.public_key(SECP256K1), |o| {
+            logic.issue_with_key(&sk, o).unwrap()
+        });
+        crate::store::failpoint::ABORT_BETWEEN_THE_WRITES.with(|f| f.set(true));
+        assert!(matches!(
+            logic.redeem_with_key(&sk, &input, sighash),
+            Err(MintInputError::Internal(_))
+        ));
+        crate::store::failpoint::ABORT_BETWEEN_THE_WRITES.with(|f| f.set(false));
+        assert!(!logic.is_spent(input.note.nonce).unwrap());
+        assert_eq!(logic.audit_totals().unwrap(), (3, 0));
+
+        // the same after a restart; the retry redeems it and counts it once
+        drop(logic);
+        let logic = reopened(&dir);
+        assert!(!logic.is_spent(input.note.nonce).unwrap());
+        assert_eq!(logic.audit_totals().unwrap(), (3, 0));
+        assert_eq!(logic.redeem_with_key(&sk, &input, sighash), Ok(()));
+        assert_eq!(logic.audit_totals().unwrap(), (3, 3));
+        assert_eq!(
+            logic.redeem_with_key(&sk, &input, sighash),
+            Err(MintInputError::SpentCoin)
+        );
+        assert_eq!(logic.audit_totals().unwrap(), (3, 3));
         drop(logic);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -504,10 +580,7 @@ mod tests {
             logic.redeem_with_key(&sk, &input, sighash),
             Err(MintInputError::SpentCoin)
         );
-        assert_eq!(
-            logic.audit_totals().unwrap(),
-            (Amount::from_units(3), Amount::from_units(3))
-        );
+        assert_eq!(logic.audit_totals().unwrap(), (3, 3));
         drop(logic);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -519,10 +592,7 @@ mod tests {
         let (input, _) = signed_input(4, &pk, |o| logic.issue(o).unwrap());
         assert_eq!(logic.verify_note(&input), Ok(()));
         assert_eq!(logic.melt(&[input], b"test"), Ok(Amount::from_units(4)));
-        assert_eq!(
-            logic.audit_totals().unwrap(),
-            (Amount::from_units(4), Amount::from_units(4))
-        );
+        assert_eq!(logic.audit_totals().unwrap(), (4, 4));
         drop(logic);
         std::fs::remove_dir_all(&dir).unwrap();
     }

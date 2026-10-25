@@ -54,7 +54,7 @@ fn issue_with_key_speed() {
         }
         let secs = start.elapsed().as_secs_f64();
         let (issued, _) = logic.audit_totals().unwrap();
-        assert_eq!(issued, Amount::from_units(4 * ISSUES as u64));
+        assert_eq!(issued, 4 * ISSUES as u128);
         let rate = ISSUES as f64 / secs;
         println!(
             "run {run}: {ISSUES} issues in {secs:.3} s = {rate:.0} issues/s ({:.1} us each)",
